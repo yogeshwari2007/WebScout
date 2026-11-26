@@ -1,0 +1,3 @@
+"""
+WebScout Backend Application Package.
+"""

@@ -80,10 +80,10 @@ class ResearchSession:
             timeout_ms=25000
         )
 
-        self.scraped_sources = [s.to_dict() for s in raw_scraped]
+        self.scraped_sources = [{"source_id": f"source_{idx}", **s.to_dict()} for idx, s in enumerate(raw_scraped, start=1)]
 
         # Check if at least one source was reached
-        accessible_count = sum(1 for s in self.scraped_sources if s["status"] in ("SUCCESS", "PARTIAL"))
+        accessible_count = sum(1 for s in self.scraped_sources if s["status"] in ("SUCCESS", "PARTIAL") and bool((s.get("content_text") or "").strip()))
         if accessible_count == 0:
             update_progress(3, "Warning: None of the submitted URLs could be retrieved.")
         else:
@@ -119,8 +119,10 @@ class ResearchSession:
             "recommendation_detail": ai_result.get("recommendation", {}),
             "sources": self.scraped_sources,
             "source_findings": ai_result.get("source_findings", []),
+            "evidence_findings": ai_result.get("evidence_findings", []),
             "comparison": ai_result.get("comparison_matrix", []),
             "discrepancies": ai_result.get("discrepancies", []),
+            "non_contradictory_differences": ai_result.get("non_contradictory_differences", []),
             "pros_and_cons": ai_result.get("pros_and_cons", []),
             "limitations": ai_result.get("limitations", []),
             "is_fallback": ai_result.get("is_fallback", False),

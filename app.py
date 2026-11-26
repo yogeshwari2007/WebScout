@@ -265,24 +265,206 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------
-# SESSION STATE INITIALIZATION
+# SESSION STATE MANAGEMENT & RESET HELPERS
 # ---------------------------------------------------------
-if "research_results" not in st.session_state:
-    st.session_state.research_results = None
-if "is_researching" not in st.session_state:
-    st.session_state.is_researching = False
-if "current_stage" not in st.session_state:
-    st.session_state.current_stage = 1
-if "stage_message" not in st.session_state:
-    st.session_state.stage_message = "Ready"
-if "query_input" not in st.session_state:
-    st.session_state.query_input = ""
-if "urls_input" not in st.session_state:
-    st.session_state.urls_input = ["", ""]
-if "preference_input" not in st.session_state:
-    st.session_state.preference_input = ""
-if "active_tab" not in st.session_state:
-    st.session_state.active_tab = "Research"
+DEFAULT_URL_SLOTS = ["", ""]
+
+RESEARCH_STATE_DEFAULTS = {
+    "research_results": None,
+    "is_researching": False,
+    "current_stage": 1,
+    "stage_message": "Ready",
+    "query_input": "",
+    "preference_input": "",
+    "urls_input": list(DEFAULT_URL_SLOTS),
+    "active_query": "",
+    "active_urls": [],
+    "active_preference": "",
+    "research_error": "",
+    "validation_errors": [],
+    "confirm_reset": False,
+    "selected_demo": "",
+    "active_tab": "Research",
+}
+
+
+def _collect_current_url_inputs() -> list:
+    """Collects live URL field values from session state in display order."""
+    base_urls = list(st.session_state.get("urls_input", DEFAULT_URL_SLOTS))
+    slot_count = max(2, len(base_urls))
+    collected = []
+    for idx in range(slot_count):
+        field_key = f"url_field_{idx}"
+        if field_key in st.session_state:
+            collected.append(str(st.session_state.get(field_key) or ""))
+        elif idx < len(base_urls):
+            collected.append(str(base_urls[idx] or ""))
+        else:
+            collected.append("")
+    return collected
+
+
+def _sync_url_widget_keys(urls: list) -> None:
+    """Synchronizes urls_input and per-slot url_field_* widget keys without leaving stale slots."""
+    target_urls = [str(u or "") for u in list(urls)[:5]]
+    while len(target_urls) < 2:
+        target_urls.append("")
+
+    st.session_state["urls_input"] = list(target_urls)
+    for idx, val in enumerate(target_urls):
+        st.session_state[f"url_field_{idx}"] = val
+
+    # Remove orphaned url_field_* keys so shrinking and re-expanding never resurrects old URLs
+    stale_keys = [
+        k for k in list(st.session_state.keys())
+        if k.startswith("url_field_") and k[10:].isdigit() and int(k[10:]) >= len(target_urls)
+    ]
+    for k in stale_keys:
+        st.session_state.pop(k, None)
+
+
+def init_research_session_state() -> None:
+    """Safely initializes all research and workspace session-state keys before widget instantiation."""
+    for key, default_val in RESEARCH_STATE_DEFAULTS.items():
+        if key not in st.session_state:
+            st.session_state[key] = list(default_val) if isinstance(default_val, list) else default_val
+
+    if "research_session_id" not in st.session_state:
+        st.session_state["research_session_id"] = 1
+
+    # Ensure API key widget state initializes once without overriding user changes or clearing on reset
+    if "gemini_api_key_input" not in st.session_state:
+        env_key = os.getenv("GEMINI_API_KEY", "")
+        has_valid_env_key = bool(env_key and env_key != "your_gemini_api_key_here")
+        st.session_state["gemini_api_key_input"] = env_key if has_valid_env_key else ""
+
+    # Ensure every URL widget slot is initialized cleanly prior to widget instantiation
+    current_urls = list(st.session_state.get("urls_input", DEFAULT_URL_SLOTS))
+    while len(current_urls) < 2:
+        current_urls.append("")
+    if st.session_state.get("urls_input") != current_urls:
+        st.session_state["urls_input"] = current_urls
+    for idx, val in enumerate(current_urls):
+        field_key = f"url_field_{idx}"
+        if field_key not in st.session_state:
+            st.session_state[field_key] = val
+
+
+def clear_research_session_state(target_tab: str = "Research") -> None:
+    """
+    Clears all research-specific data, inputs, errors, progress flags, and stale widget slots
+    while preserving unrelated application settings (such as Gemini API key and custom config).
+    """
+    st.session_state["research_results"] = None
+    st.session_state["is_researching"] = False
+    st.session_state["current_stage"] = 1
+    st.session_state["stage_message"] = "Ready"
+    st.session_state["query_input"] = ""
+    st.session_state["preference_input"] = ""
+    st.session_state["active_query"] = ""
+    st.session_state["active_urls"] = []
+    st.session_state["active_preference"] = ""
+    st.session_state["research_error"] = ""
+    st.session_state["validation_errors"] = []
+    st.session_state["confirm_reset"] = False
+    st.session_state["selected_demo"] = ""
+    st.session_state["active_tab"] = target_tab
+    st.session_state["research_session_id"] = int(st.session_state.get("research_session_id", 1)) + 1
+    _sync_url_widget_keys(DEFAULT_URL_SLOTS)
+
+
+def has_active_research_session() -> bool:
+    """Returns True when completed results exist that should prompt confirmation before reset."""
+    return bool(st.session_state.get("research_results"))
+
+
+def handle_new_research() -> None:
+    """Starts a clean New Research session immediately from any view."""
+    clear_research_session_state(target_tab="Research")
+
+
+def handle_reset_request() -> None:
+    """Requests confirmation before wiping active results; otherwise resets workspace immediately."""
+    if has_active_research_session() and not st.session_state.get("confirm_reset", False):
+        st.session_state["confirm_reset"] = True
+        st.session_state["is_researching"] = False
+    else:
+        clear_research_session_state(target_tab="Research")
+
+
+def handle_confirm_reset() -> None:
+    """Executes workspace reset after user confirmation."""
+    clear_research_session_state(target_tab="Research")
+
+
+def handle_cancel_reset() -> None:
+    """Dismisses pending reset confirmation without discarding research state."""
+    st.session_state["confirm_reset"] = False
+
+
+def handle_switch_tab(tab_name: str) -> None:
+    """Switches top-level workspace tab cleanly."""
+    st.session_state["active_tab"] = tab_name
+    if tab_name != "Research":
+        st.session_state["confirm_reset"] = False
+
+
+def handle_add_url() -> None:
+    """Appends a new empty URL slot up to 5 sources while preserving typed inputs."""
+    urls = _collect_current_url_inputs()
+    if len(urls) < 5:
+        urls.append("")
+        _sync_url_widget_keys(urls)
+    st.session_state["validation_errors"] = []
+
+
+def handle_remove_url() -> None:
+    """Removes the last URL slot above the minimum 2 sources cleanly."""
+    urls = _collect_current_url_inputs()
+    if len(urls) > 2:
+        urls.pop()
+        _sync_url_widget_keys(urls)
+    st.session_state["validation_errors"] = []
+
+
+def handle_load_demo_scenario(scenario: dict) -> None:
+    """Populates a demo scenario after clearing previous results and error flags."""
+    clear_research_session_state(target_tab="Research")
+    st.session_state["query_input"] = scenario["query"]
+    st.session_state["preference_input"] = scenario["preference"]
+    st.session_state["selected_demo"] = scenario["label"]
+    _sync_url_widget_keys(list(scenario["urls"]))
+
+
+def handle_start_research() -> None:
+    """Validates form values and starts an isolated research execution run."""
+    query_val = str(st.session_state.get("query_input") or "")
+    pref_val = str(st.session_state.get("preference_input") or "")
+    raw_urls = _collect_current_url_inputs()
+    clean_urls = [u.strip() for u in raw_urls if u and u.strip()]
+
+    st.session_state["research_error"] = ""
+    st.session_state["confirm_reset"] = False
+
+    is_valid, validation_errors = validate_research_inputs(query_val, clean_urls)
+    if not is_valid:
+        st.session_state["validation_errors"] = validation_errors
+        st.session_state["is_researching"] = False
+        return
+
+    st.session_state["validation_errors"] = []
+    st.session_state["research_results"] = None
+    st.session_state["active_query"] = query_val.strip()
+    st.session_state["active_urls"] = clean_urls
+    st.session_state["active_preference"] = pref_val.strip()
+    _sync_url_widget_keys(clean_urls)
+    st.session_state["current_stage"] = 1
+    st.session_state["stage_message"] = "Starting research..."
+    st.session_state["research_session_id"] = int(st.session_state.get("research_session_id", 1)) + 1
+    st.session_state["is_researching"] = True
+
+
+init_research_session_state()
 
 
 # ---------------------------------------------------------
@@ -295,19 +477,20 @@ with st.sidebar:
     st.markdown("### ⚙️ Engine Settings")
 
     configured_key = os.getenv("GEMINI_API_KEY", "")
-    is_key_set = bool(configured_key and configured_key != "your_gemini_api_key_here")
+    is_env_key_set = bool(configured_key and configured_key != "your_gemini_api_key_here")
 
-    # API Key Input
+    # API Key Input (bound via key so unrelated app configuration persists across resets)
     user_api_key = st.text_input(
         "Google Gemini API Key",
-        value=configured_key if is_key_set else "",
+        key="gemini_api_key_input",
         type="password",
         help="Get your key at https://aistudio.google.com/. Required for AI synthesis; fallback heuristics run if absent."
     )
 
-    if user_api_key:
-        os.environ["GEMINI_API_KEY"] = user_api_key
-        is_key_set = True
+    effective_api_key = (user_api_key or "").strip()
+    if effective_api_key:
+        os.environ["GEMINI_API_KEY"] = effective_api_key
+    is_key_set = bool(effective_api_key or is_env_key_set)
 
     # Status Pill
     if is_key_set:
@@ -327,12 +510,13 @@ with st.sidebar:
     st.caption("Select a pre-configured research scenario to populate the input panel:")
 
     for idx, scenario in enumerate(DEMO_SCENARIOS):
-        if st.button(scenario["label"], key=f"demo_btn_{idx}", use_container_width=True):
-            st.session_state.query_input = scenario["query"]
-            st.session_state.urls_input = list(scenario["urls"])
-            st.session_state.preference_input = scenario["preference"]
-            st.session_state.research_results = None
-            st.rerun()
+        st.button(
+            scenario["label"],
+            key=f"demo_btn_{idx}",
+            use_container_width=True,
+            on_click=handle_load_demo_scenario,
+            args=(scenario,),
+        )
 
     st.markdown("---")
     st.caption("WebScout v1.0 • Hackathon Edition")
@@ -363,15 +547,64 @@ st.markdown(
 # ---------------------------------------------------------
 # MAIN VIEWS: RESEARCH WORKSPACE & ABOUT
 # ---------------------------------------------------------
-nav_col1, nav_col2, _ = st.columns([1, 1, 4])
+nav_col1, nav_col2, _, nav_new_col, nav_reset_col = st.columns([1.2, 1.35, 1.35, 1.1, 1.0])
 with nav_col1:
-    if st.button("🔍 Research Studio", use_container_width=True, type="primary" if st.session_state.active_tab == "Research" else "secondary"):
-        st.session_state.active_tab = "Research"
-        st.rerun()
+    st.button(
+        "🔍 Research Studio",
+        key="nav_research_btn",
+        use_container_width=True,
+        type="primary" if st.session_state.active_tab == "Research" else "secondary",
+        on_click=handle_switch_tab,
+        args=("Research",),
+    )
 with nav_col2:
-    if st.button("ℹ️ Architecture & About", use_container_width=True, type="primary" if st.session_state.active_tab == "About" else "secondary"):
-        st.session_state.active_tab = "About"
-        st.rerun()
+    st.button(
+        "ℹ️ Architecture & About",
+        key="nav_about_btn",
+        use_container_width=True,
+        type="primary" if st.session_state.active_tab == "About" else "secondary",
+        on_click=handle_switch_tab,
+        args=("About",),
+    )
+with nav_new_col:
+    st.button(
+        "🔄 New Research",
+        key="top_new_research_btn",
+        use_container_width=True,
+        on_click=handle_new_research,
+        help="Start fresh: clears previous results, query, URLs, preferences, errors, and progress.",
+    )
+with nav_reset_col:
+    st.button(
+        "↺ Reset",
+        key="top_reset_btn",
+        use_container_width=True,
+        on_click=handle_reset_request,
+        help="Restore workspace defaults (keeps your Gemini API key & engine settings).",
+    )
+
+if st.session_state.confirm_reset:
+    with st.container():
+        st.warning(
+            "Reset the research workspace? Active research results, inputs, and progress will be cleared. "
+            "Your Gemini API key and application settings will be preserved."
+        )
+        conf_col1, conf_col2, _ = st.columns([1.2, 1.0, 3.8])
+        with conf_col1:
+            st.button(
+                "✓ Confirm Reset",
+                key="confirm_reset_btn",
+                type="primary",
+                use_container_width=True,
+                on_click=handle_confirm_reset,
+            )
+        with conf_col2:
+            st.button(
+                "Cancel",
+                key="cancel_reset_btn",
+                use_container_width=True,
+                on_click=handle_cancel_reset,
+            )
 
 
 # =========================================================
@@ -395,91 +628,95 @@ if st.session_state.active_tab == "Research":
             unsafe_allow_html=True
         )
 
-    # RESEARCH INPUT PANEL (Shown when no active results or when user requests new run)
+    # RESEARCH INPUT PANEL (Shown when not actively executing research)
     if not st.session_state.is_researching:
         with st.container():
             st.markdown("### 🎯 Define Your Research Objective")
-            
+
+            if st.session_state.research_error:
+                st.error(f"⚠️ {st.session_state.research_error}")
+
             # Query input
-            query_val = st.text_input(
+            st.text_input(
                 "Research Question / Goal *",
-                value=st.session_state.query_input,
+                key="query_input",
                 placeholder="e.g. Compare budget laptops suitable for computer science students.",
                 help="Formulate a clear comparative question."
             )
 
             # Preference input
-            pref_val = st.text_input(
+            st.text_input(
                 "Evaluation Focus / Priorities (Optional)",
-                value=st.session_state.preference_input,
+                key="preference_input",
                 placeholder="e.g. Price vs. specs, battery life, keyboard quality, long-term durability"
             )
 
             st.markdown("#### 🔗 Target Source URLs (Minimum 2 distinct websites)")
-            
+
             current_urls = list(st.session_state.urls_input)
-            # Ensure at least 2 slots
             while len(current_urls) < 2:
                 current_urls.append("")
 
-            url_inputs = []
             for i in range(len(current_urls)):
+                if f"url_field_{i}" not in st.session_state:
+                    st.session_state[f"url_field_{i}"] = current_urls[i]
                 url_col, _ = st.columns([5, 1])
                 with url_col:
-                    u_val = st.text_input(
+                    st.text_input(
                         f"Website URL #{i+1}",
-                        value=current_urls[i],
                         key=f"url_field_{i}",
                         placeholder="https://example.com/specifications"
                     )
-                    url_inputs.append(u_val)
 
             btn_row1, btn_row2, _ = st.columns([1.5, 1.5, 4])
             with btn_row1:
-                if len(current_urls) < 5 and st.button("➕ Add Another URL"):
-                    current_urls.append("")
-                    st.session_state.urls_input = current_urls
-                    st.rerun()
+                if len(current_urls) < 5:
+                    st.button(
+                        "➕ Add Another URL",
+                        key="add_url_btn",
+                        on_click=handle_add_url,
+                    )
             with btn_row2:
-                if len(current_urls) > 2 and st.button("➖ Remove URL"):
-                    current_urls.pop()
-                    st.session_state.urls_input = current_urls
-                    st.rerun()
+                if len(current_urls) > 2:
+                    st.button(
+                        "➖ Remove URL",
+                        key="remove_url_btn",
+                        on_click=handle_remove_url,
+                    )
 
             st.markdown("<br>", unsafe_allow_html=True)
-            
-            col_cta, col_clear, _ = st.columns([2, 1, 3])
-            start_clicked = False
+
+            col_cta, col_clear, _ = st.columns([2, 1.1, 2.9])
             with col_cta:
-                if st.button("START RESEARCH →", type="primary", use_container_width=True):
-                    start_clicked = True
+                st.button(
+                    "START RESEARCH →",
+                    key="start_research_btn",
+                    type="primary",
+                    use_container_width=True,
+                    on_click=handle_start_research,
+                )
             with col_clear:
-                if st.button("Clear Form", use_container_width=True):
-                    st.session_state.query_input = ""
-                    st.session_state.urls_input = ["", ""]
-                    st.session_state.preference_input = ""
-                    st.session_state.research_results = None
-                    st.rerun()
+                st.button(
+                    "↺ Reset Form",
+                    key="form_reset_btn",
+                    use_container_width=True,
+                    on_click=handle_reset_request,
+                    help="Restore default blank inputs and clear errors/results (preserves API key & settings).",
+                )
 
-            if start_clicked:
-                clean_urls = [u.strip() for u in url_inputs if u and u.strip()]
-                is_valid, validation_errors = validate_research_inputs(query_val, clean_urls)
-
-                if not is_valid:
-                    for err in validation_errors:
-                        st.error(f"⚠️ {err}")
-                else:
-                    st.session_state.query_input = query_val
-                    st.session_state.urls_input = clean_urls
-                    st.session_state.preference_input = pref_val
-                    st.session_state.is_researching = True
-                    st.session_state.research_results = None
-                    st.rerun()
+            if st.session_state.validation_errors:
+                for err in st.session_state.validation_errors:
+                    st.error(f"⚠️ {err}")
 
     # ACTIVE RESEARCH EXECUTION WORKSPACE
-    if st.session_state.is_researching:
-        st.markdown(f"### ⚡ Research in Progress: *{st.session_state.query_input}*")
-        
+    if st.session_state.is_researching and not st.session_state.confirm_reset:
+        run_id_snapshot = st.session_state.research_session_id
+        run_query = st.session_state.active_query or st.session_state.query_input
+        run_urls = st.session_state.active_urls or _collect_current_url_inputs()
+        run_pref = st.session_state.active_preference
+
+        st.markdown(f"### ⚡ Research in Progress: *{run_query}*")
+
         # Milestone Stepper Component
         step_cols = st.columns(6)
         stage_placeholders = []
@@ -510,32 +747,60 @@ if st.session_state.active_tab == "Research":
                 stage_placeholders[i].markdown(html, unsafe_allow_html=True)
 
         render_stepper(1)
-        
+
         status_box = st.empty()
         log_box = st.empty()
 
         session = ResearchSession(
-            query=st.session_state.query_input,
-            urls=st.session_state.urls_input,
-            preference=st.session_state.preference_input,
-            api_key=user_api_key or os.getenv("GEMINI_API_KEY")
+            query=run_query,
+            urls=run_urls,
+            preference=run_pref,
+            api_key=effective_api_key or os.getenv("GEMINI_API_KEY")
         )
 
         def on_progress(stage_num: int, message: str, extra=None):
+            st.session_state["current_stage"] = stage_num
+            st.session_state["stage_message"] = message
             render_stepper(stage_num)
             status_box.info(f"**Stage {stage_num}/6**: {message}")
 
-        # Run pipeline
-        report = session.execute(progress_callback=on_progress)
+        # Run pipeline with guarded failure handling
+        try:
+            report = session.execute(progress_callback=on_progress)
+        except Exception as exc:
+            report = {"error": True, "message": f"Research execution failed: {str(exc)}"}
 
-        if report and not report.get("error"):
+        # Guard against applying output if session was reset mid-run
+        if st.session_state.research_session_id != run_id_snapshot:
+            st.session_state.is_researching = False
+            st.rerun()
+        elif report and not report.get("error"):
             st.session_state.research_results = report
             st.session_state.is_researching = False
-            time.sleep(1)
+            st.session_state.current_stage = 6
+            st.session_state.stage_message = f"Completed in {report.get('elapsed_seconds', 0)}s"
+            st.session_state.research_error = ""
+            st.session_state.active_query = ""
+            st.session_state.active_urls = []
+            st.session_state.active_preference = ""
+            time.sleep(0.25)
             st.rerun()
         else:
+            err_list = report.get("errors") if isinstance(report, dict) else None
+            err_msg = (
+                "; ".join(err_list)
+                if err_list
+                else (report.get("message") if isinstance(report, dict) else "Research encountered an issue.")
+            )
+            st.session_state.research_results = None
             st.session_state.is_researching = False
-            st.error("Research encountered an issue. See details above.")
+            st.session_state.current_stage = 1
+            st.session_state.stage_message = "Ready"
+            st.session_state.research_error = err_msg
+            st.session_state.active_query = ""
+            st.session_state.active_urls = []
+            st.session_state.active_preference = ""
+            st.rerun()
 
 
     # =========================================================
@@ -543,7 +808,7 @@ if st.session_state.active_tab == "Research":
     # =========================================================
     if st.session_state.research_results and not st.session_state.is_researching:
         res = st.session_state.research_results
-        
+
         # Top Action Bar
         r_col1, r_col2 = st.columns([4, 1.5])
         with r_col1:
@@ -557,15 +822,17 @@ if st.session_state.active_tab == "Research":
                     data=res.get("markdown_content", ""),
                     file_name="webscout_intelligence_report.md",
                     mime="text/markdown",
+                    key=f"export_report_btn_{st.session_state.research_session_id}",
                     use_container_width=True
                 )
             with c2:
-                if st.button("🔄 New Research", use_container_width=True):
-                    st.session_state.research_results = None
-                    st.session_state.query_input = ""
-                    st.session_state.urls_input = ["", ""]
-                    st.session_state.preference_input = ""
-                    st.rerun()
+                st.button(
+                    "🔄 New Research",
+                    key="results_new_research_btn",
+                    use_container_width=True,
+                    on_click=handle_new_research,
+                    help="Clear current report and inputs to begin a fresh research session.",
+                )
 
         # METRICS ROW
         m1, m2, m3, m4 = st.columns(4)

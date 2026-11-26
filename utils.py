@@ -159,12 +159,21 @@ def generate_markdown_report(report_data: dict) -> str:
         ""
     ]
 
+    source_findings_list = report_data.get("source_findings", [])
+    sf_by_url = {
+        (sf.get("source_url") or "").strip().rstrip("/").lower(): sf
+        for sf in source_findings_list
+        if isinstance(sf, dict) and sf.get("source_url")
+    }
+
     for src in sources:
         title = src.get("title", "Untitled Source")
         url = src.get("url", "#")
         status = src.get("status", "Unknown")
-        key_points = src.get("key_findings", [])
-        
+        sf_match = sf_by_url.get((url or "").strip().rstrip("/").lower(), {})
+        key_points = src.get("key_findings") or sf_match.get("key_findings", [])
+        evidence_snippets = src.get("evidence_snippets") or sf_match.get("evidence_snippets", [])
+
         lines.append(f"### {title}")
         lines.append(f"- **Source URL**: [{url}]({url})")
         lines.append(f"- **Retrieval Status**: `{status}`")
@@ -172,6 +181,47 @@ def generate_markdown_report(report_data: dict) -> str:
             lines.append("- **Key Findings**:")
             for pt in key_points:
                 lines.append(f"  - {pt}")
+        if evidence_snippets:
+            lines.append("- **Verified Evidence Excerpts**:")
+            for snip in evidence_snippets:
+                lines.append(f'  > "{snip}"')
+        lines.append("")
+
+    evidence_findings = report_data.get("evidence_findings", [])
+    if evidence_findings:
+        lines.append("### Evidence-Backed Findings & Traceability")
+        lines.append("")
+        for ef in evidence_findings:
+            ev_status = ef.get("evidence_status", "UNSUPPORTED")
+            ver_status = ef.get("verification_status")
+            is_inf = ef.get("is_inference", False)
+            tag_parts = [ev_status]
+            if ver_status:
+                tag_parts.append(ver_status)
+            if is_inf and ev_status != "INFERENCE":
+                tag_parts.append("INFERENCE")
+            badge = f"[{' | '.join(tag_parts)}]"
+            lines.append(f"- **{badge}** {ef.get('finding', '')}")
+            supporting = [
+                cit for cit in ef.get("supporting_sources", [])
+                if cit.get("is_verified", True) and cit.get("excerpt_verified", True)
+            ]
+            if supporting:
+                for cit in supporting:
+                    c_id = cit.get("source_id", "")
+                    c_url = cit.get("source_url", "")
+                    c_title = cit.get("source_title") or c_url
+                    c_status = cit.get("source_status", "UNKNOWN")
+                    id_prefix = f"{c_id} | " if c_id else ""
+                    lines.append(f"  - Verified Citation: [{c_title}]({c_url}) (`{id_prefix}{c_status}`)")
+                    if cit.get("evidence_excerpt"):
+                        lines.append(f'    > "{cit["evidence_excerpt"]}"')
+            elif ef.get("evidence_excerpt") and ver_status != "UNVERIFIED":
+                lines.append(f'  > "{ef["evidence_excerpt"]}"')
+            if ef.get("inference_basis"):
+                lines.append(f"  - *Inference Basis*: {ef['inference_basis']}")
+            if ef.get("limitation_note"):
+                lines.append(f"  - *Note*: {ef['limitation_note']}")
         lines.append("")
 
     if comparison:
@@ -183,7 +233,24 @@ def generate_markdown_report(report_data: dict) -> str:
         for item in comparison:
             crit = item.get("criterion", "Feature")
             details = item.get("details", "")
-            eval_note = item.get("evaluation", "")
+            if not details and isinstance(item.get("cells"), dict) and item["cells"]:
+                cell_parts = []
+                for sid, cell in item["cells"].items():
+                    label = cell.get("source_title") or sid
+                    val = cell.get("extracted_value", "")
+                    st = cell.get("information_status", "")
+                    norm = cell.get("normalized_value", "")
+                    norm_suffix = f" [{norm}]" if norm else ""
+                    cell_parts.append(f"{label} ({sid}, {st}): {val}{norm_suffix}")
+                details = "; ".join(cell_parts)
+            elif not details and isinstance(item.get("source_evaluations"), dict):
+                details = "; ".join(f"{k}: {v}" for k, v in item["source_evaluations"].items())
+            eval_note = item.get("evaluation") or item.get("explanation") or item.get("synthesis_note", "")
+            cls = item.get("classification", "")
+            ver = item.get("verification_status", "")
+            if cls:
+                badge = f"`[{cls} | {ver}]` " if ver else f"`[{cls}]` "
+                eval_note = f"{badge}{eval_note}"
             lines.append(f"| **{crit}** | {details} | {eval_note} |")
         lines.append("")
 
@@ -192,8 +259,20 @@ def generate_markdown_report(report_data: dict) -> str:
         lines.append("")
         for disc in discrepancies:
             crit = disc.get("criterion", "General")
-            note = disc.get("description", "")
-            lines.append(f"- **{crit}**: {note}")
+            c_status = disc.get("contradiction_status", "")
+            v_status = disc.get("verification_status", "")
+            conf = disc.get("confidence", "")
+            note = disc.get("explanation") or disc.get("description", "")
+            meta_tags = [t for t in (c_status, v_status, f"Confidence: {conf}" if conf else "") if t]
+            tag_str = f" `[{' | '.join(meta_tags)}]`" if meta_tags else ""
+            lines.append(f"- **{crit}**{tag_str}: {note}")
+            claims = disc.get("claims", [])
+            verified_claims = [c for c in claims if c.get("is_verified", True) and c.get("evidence_excerpt")]
+            if verified_claims:
+                for cl in verified_claims:
+                    src_label = cl.get("source_title") or cl.get("source_url", "")
+                    lines.append(f"  - [{src_label}]({cl.get('source_url', '')}) (`{cl.get('source_status', 'UNKNOWN')}`): {cl.get('claim', '')}")
+                    lines.append(f'    > "{cl["evidence_excerpt"]}"')
         lines.append("")
 
     if limitations:

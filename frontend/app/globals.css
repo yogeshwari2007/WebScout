@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light Theme Tokens */
+    --background: #F8FAFC;
+    --foreground: #111827;
+    
+    --surface: #FFFFFF;
+    --surface-hover: #F1F5F9;
+    
+    --card: #FFFFFF;
+    --card-foreground: #111827;
+    --card-border: #E2E8F0;
+    
+    /* Periwinkle Indigo Primary */
+    --primary: #8B9CFB;
+    --primary-hover: #7688F5;
+    --primary-foreground: #FFFFFF;
+    
+    --secondary: #EEF2F6;
+    --secondary-foreground: #1E293B;
+    
+    --muted: #F1F5F9;
+    --muted-foreground: #64748B;
+    
+    --border: #E2E8F0;
+    --ring: #8B9CFB;
+  }
+
+  .dark {
+    /* Dark Theme Tokens */
+    --background: #101827;
+    --foreground: #F8FAFC;
+    
+    --surface: #182235;
+    --surface-hover: #1F2C45;
+    
+    --card: #182235;
+    --card-foreground: #F8FAFC;
+    --card-border: #1E293B;
+    
+    /* Periwinkle Indigo Primary */
+    --primary: #8B9CFB;
+    --primary-hover: #9EADFC;
+    --primary-foreground: #101827;
+    
+    --secondary: #1F2C45;
+    --secondary-foreground: #F8FAFC;
+    
+    --muted: #1A2538;
+    --muted-foreground: #94A3B8;
+    
+    --border: #1E293B;
+    --ring: #8B9CFB;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased transition-colors duration-200;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Accessible focus indicators */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer utilities {
+  .subtle-border {
+    border-color: var(--border);
+  }
+}
