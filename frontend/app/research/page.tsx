@@ -9,6 +9,7 @@ import { UrlListInput } from "@/components/research/UrlListInput";
 import { ExampleChips, EXAMPLES } from "@/components/research/ExampleChips";
 import { ResearchReadiness } from "@/components/research/ResearchReadiness";
 import { ResearchTip } from "@/components/research/ResearchTip";
+import { GeminiKeyPanel } from "@/components/research/GeminiKeyPanel";
 import { Button } from "@/components/ui/Button";
 import { UrlItem, ExampleIdea, StoredResearchData } from "@/lib/types";
 import { calculateReadiness, validateUrlEntry } from "@/lib/validation";
@@ -193,6 +194,9 @@ export default function ResearchWorkspacePage() {
         <div className="lg:col-span-4 space-y-6 sticky top-24">
           {/* Research Readiness Card */}
           <ResearchReadiness readiness={readiness} />
+
+          {/* In-App Gemini API Key Panel */}
+          <GeminiKeyPanel variant="sidebar" />
 
           {/* Contextual Assistant Tip */}
           <ResearchTip tip={activeTip} />

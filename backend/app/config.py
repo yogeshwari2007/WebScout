@@ -10,6 +10,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _PLACEHOLDER_KEYS = {"", "your_gemini_api_key_here"}
 
 
+def sanitize_gemini_api_key(raw_key: Optional[str]) -> str:
+    """Normalizes a candidate Gemini API key, returning '' for blank or placeholder values."""
+    key = (raw_key or "").strip()
+    return "" if key in _PLACEHOLDER_KEYS else key
+
+
 class Settings(BaseSettings):
     PROJECT_NAME: str = "WebScout API"
     VERSION: str = "0.1.0"
@@ -47,13 +53,25 @@ class Settings(BaseSettings):
     @property
     def cleaned_gemini_api_key(self) -> str:
         """Returns trimmed Gemini API key or empty string when missing/placeholder."""
-        key = (self.GEMINI_API_KEY or "").strip()
-        return "" if key in _PLACEHOLDER_KEYS else key
+        return sanitize_gemini_api_key(self.GEMINI_API_KEY)
 
     @property
     def has_valid_gemini_key(self) -> bool:
         """True when a non-placeholder GEMINI_API_KEY is configured."""
         return bool(self.cleaned_gemini_api_key)
+
+    def resolve_gemini_api_key(self, override_api_key: Optional[str] = None) -> str:
+        """Returns sanitized per-request key when supplied, else configured server key."""
+        return sanitize_gemini_api_key(override_api_key) or self.cleaned_gemini_api_key
+
+    def resolve_analyzer_mode(self, override_api_key: Optional[str] = None) -> str:
+        """Resolves effective analyzer ('gemini' or 'mock') given settings and optional override key."""
+        mode = (self.ANALYZER or "auto").strip().lower()
+        if self.USE_MOCK or mode == "mock":
+            return "mock"
+        if mode in ("auto", "gemini") and self.resolve_gemini_api_key(override_api_key):
+            return "gemini"
+        return "mock"
 
     @property
     def active_fetcher(self) -> str:
@@ -65,12 +83,7 @@ class Settings(BaseSettings):
     @property
     def active_analyzer(self) -> str:
         """Returns 'gemini' when enabled and GEMINI_API_KEY is valid, otherwise 'mock'."""
-        mode = (self.ANALYZER or "auto").strip().lower()
-        if self.USE_MOCK or mode == "mock":
-            return "mock"
-        if mode in ("auto", "gemini") and self.has_valid_gemini_key:
-            return "gemini"
-        return "mock"
+        return self.resolve_analyzer_mode()
 
     model_config = SettingsConfigDict(
         env_file=(".env", "backend/.env", "../.env"),

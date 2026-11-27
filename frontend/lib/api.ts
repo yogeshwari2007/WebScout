@@ -1,5 +1,6 @@
 import { ResearchResult, SourceStatusType } from "./types";
 import { extractHostname } from "./validation";
+import { getStoredGeminiApiKey, sanitizeGeminiApiKey } from "./geminiKey";
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(
   /\/+$/,
@@ -126,7 +127,7 @@ export function adaptBackendResponse(
 export async function research(
   query: string,
   urls: string[],
-  options?: { signal?: AbortSignal; timeoutMs?: number }
+  options?: { signal?: AbortSignal; timeoutMs?: number; geminiApiKey?: string }
 ): Promise<ResearchResult> {
   const timeoutMs = options?.timeoutMs || 90000; // 90s timeout
   const controller = new AbortController();
@@ -143,13 +144,24 @@ export async function research(
     });
   }
 
+  const effectiveGeminiKey = sanitizeGeminiApiKey(
+    options?.geminiApiKey !== undefined
+      ? options.geminiApiKey
+      : getStoredGeminiApiKey()
+  );
+
+  const requestHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (effectiveGeminiKey) {
+    requestHeaders["X-Gemini-Api-Key"] = effectiveGeminiKey;
+  }
+
   try {
     const response = await fetch(`${API_BASE_URL}/api/research`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
+      headers: requestHeaders,
       body: JSON.stringify({
         query: query.trim(),
         urls,

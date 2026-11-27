@@ -33,6 +33,10 @@ async function proxyToBackend(
     if (accept) {
       forwardHeaders.set("accept", accept);
     }
+    const geminiApiKey = request.headers.get("x-gemini-api-key")?.trim();
+    if (geminiApiKey) {
+      forwardHeaders.set("x-gemini-api-key", geminiApiKey);
+    }
 
     const method = request.method.toUpperCase();
     const hasBody = method !== "GET" && method !== "HEAD";

@@ -11,7 +11,7 @@ import logging
 import time
 from typing import List, Optional
 
-from app.config import settings
+from app.config import sanitize_gemini_api_key, settings
 from app.models.fetch import FetchResult
 from app.models.response import (
     ComparisonItemResponse,
@@ -177,8 +177,13 @@ def get_mock_analyzer() -> MockAnalyzer:
     return _shared_mock_analyzer
 
 
-def get_gemini_analyzer() -> BaseAnalyzer:
+def get_gemini_analyzer(override_api_key: Optional[str] = None) -> BaseAnalyzer:
     global _shared_gemini_analyzer
+    override_key = sanitize_gemini_api_key(override_api_key)
+    if override_key:
+        # Keep user-supplied keys request-scoped so credentials are never shared across requests
+        return GeminiAnalyzer(api_key=override_key)
+
     api_key = settings.cleaned_gemini_api_key
     if api_key:
         if _shared_gemini_analyzer is None or _shared_gemini_analyzer.api_key != api_key:
@@ -187,7 +192,7 @@ def get_gemini_analyzer() -> BaseAnalyzer:
     return get_mock_analyzer()
 
 
-def get_orchestrator() -> ResearchOrchestrator:
+def get_orchestrator(gemini_api_key: Optional[str] = None) -> ResearchOrchestrator:
     """
     Factory creating a ResearchOrchestrator wired with the configured fetcher and analyzer.
     """
@@ -196,8 +201,8 @@ def get_orchestrator() -> ResearchOrchestrator:
     else:
         fetcher = get_playwright_fetcher()
 
-    if settings.active_analyzer == "gemini":
-        analyzer = get_gemini_analyzer()
+    if settings.resolve_analyzer_mode(gemini_api_key) == "gemini":
+        analyzer = get_gemini_analyzer(override_api_key=gemini_api_key)
     else:
         analyzer = get_mock_analyzer()
 

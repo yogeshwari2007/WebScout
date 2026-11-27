@@ -22,6 +22,7 @@ import { ResultsHeader } from "@/components/research/ResultsHeader";
 import { ProgressStepper, DEFAULT_STAGES } from "@/components/research/ProgressStepper";
 import { SourceStatusList } from "@/components/research/SourceStatusList";
 import { ResearchActivity } from "@/components/research/ResearchActivity";
+import { GeminiKeyPanel } from "@/components/research/GeminiKeyPanel";
 import {
   SummarySkeleton,
   ComparisonTableSkeleton,
@@ -47,6 +48,10 @@ import { extractHostname } from "@/lib/validation";
 import { getHistoryEntry, saveHistoryEntry } from "@/lib/storage";
 import { SAMPLE_RESEARCH_RESULT } from "@/lib/sampleData";
 import { research as executeResearchApi, ApiError } from "@/lib/api";
+import {
+  getStoredGeminiApiKey,
+  subscribeGeminiKeyChange,
+} from "@/lib/geminiKey";
 
 function ResearchResultsContent() {
   const router = useRouter();
@@ -84,6 +89,14 @@ function ResearchResultsContent() {
   // Simulation controls (optional developer preview)
   const [isSimulating, setIsSimulating] = React.useState(false);
   const [showSkeletonPreview, setShowSkeletonPreview] = React.useState(false);
+  const [hasInAppGeminiKey, setHasInAppGeminiKey] = React.useState(false);
+
+  React.useEffect(() => {
+    setHasInAppGeminiKey(Boolean(getStoredGeminiApiKey()));
+    return subscribeGeminiKeyChange(() => {
+      setHasInAppGeminiKey(Boolean(getStoredGeminiApiKey()));
+    });
+  }, []);
 
   // Request cancellation & in-flight tracking
   const abortControllerRef = React.useRef<AbortController | null>(null);
@@ -704,7 +717,7 @@ function ResearchResultsContent() {
         {activeResult.summary.includes("[DEMO / MOCK ANALYSIS]") && (
           <div className="rounded-2xl border border-primary/40 bg-primary/10 p-4 sm:p-5 flex items-start gap-3 shadow-xs animate-in fade-in-0 duration-200">
             <Sparkles className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-            <div className="space-y-1">
+            <div className="space-y-1 flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-primary">
                   Predictable Demo Mode Active
@@ -714,8 +727,16 @@ function ResearchResultsContent() {
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-foreground/85 leading-relaxed">
-                This research session was evaluated using the Hackathon Demo Engine. Websites were fetched and cleaned via Playwright, and comparative findings are structured for presentation reliability. Set <code className="text-primary font-mono text-[11px]">GEMINI_API_KEY</code> (with <code className="text-primary font-mono text-[11px]">USE_MOCK=false</code>) in your backend or Vercel Environment Variables for live Gemini AI semantic reasoning.
+                {hasInAppGeminiKey
+                  ? "An in-app Gemini key is set, but Gemini fell back to Demo Mode (the key may be invalid, restricted, or out of quota). Update it below and re-run."
+                  : "This session was evaluated with the Hackathon Demo Engine. Paste your Gemini API key below to immediately re-run with live Gemini AI semantic reasoning (no Vercel dashboard setup needed)."}
               </p>
+              <GeminiKeyPanel
+                variant="banner"
+                fellBackToMock={hasInAppGeminiKey}
+                onApplyAndRerun={data ? handleRetry : undefined}
+                isRerunning={false}
+              />
             </div>
           </div>
         )}

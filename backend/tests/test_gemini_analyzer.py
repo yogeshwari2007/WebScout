@@ -173,3 +173,88 @@ async def test_health_and_orchestrator_reflect_gemini_key():
         settings.ANALYZER = orig_analyzer
         settings.GEMINI_API_KEY = orig_key
         settings.USE_MOCK = orig_mock
+
+
+@pytest.mark.asyncio
+async def test_per_request_gemini_header_overrides_without_shared_leak():
+    """X-Gemini-Api-Key enables Gemini per request without caching user keys globally."""
+    import app.services.orchestrator as orch_module
+
+    orig_analyzer = settings.ANALYZER
+    orig_fetcher = settings.FETCHER
+    orig_key = settings.GEMINI_API_KEY
+    orig_mock = settings.USE_MOCK
+    orig_shared = orch_module._shared_gemini_analyzer
+
+    payload = {
+        "summary": "Header-supplied Gemini key completed semantic synthesis cleanly.",
+        "criteria": ["Speed"],
+        "items": [
+            {
+                "name": "Example Site",
+                "source_url": "https://example.com",
+                "values": {"Speed": "Fast"},
+                "pros": ["Low latency"],
+                "cons": ["Limited docs"],
+            }
+        ],
+        "recommendation": {
+            "winner": "Example Site",
+            "reasoning": "Fastest observed option from extracted text.",
+            "source_urls": ["https://example.com"],
+        },
+    }
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = SimpleNamespace(
+        text=json.dumps(payload)
+    )
+
+    try:
+        settings.ANALYZER = "auto"
+        settings.FETCHER = "mock"
+        settings.USE_MOCK = False
+        settings.GEMINI_API_KEY = None
+        orch_module._shared_gemini_analyzer = None
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            # 1. Health reports mock without header, gemini with header
+            res_no_hdr = await client.get("/api/health")
+            assert res_no_hdr.status_code == 200
+            assert res_no_hdr.json()["analyzer"] == "mock"
+
+            res_with_hdr = await client.get(
+                "/api/health", headers={"X-Gemini-Api-Key": "user-provided-key"}
+            )
+            assert res_with_hdr.status_code == 200
+            assert res_with_hdr.json()["analyzer"] == "gemini"
+
+            # Placeholder header still resolves to mock
+            res_placeholder = await client.get(
+                "/api/health", headers={"X-Gemini-Api-Key": "your_gemini_api_key_here"}
+            )
+            assert res_placeholder.json()["analyzer"] == "mock"
+
+            # 2. /api/research uses per-request header without leaking to _shared_gemini_analyzer
+            with patch("app.services.analyzers.gemini_analyzer.genai.Client", return_value=mock_client):
+                res = await client.post(
+                    "/api/research",
+                    headers={"X-Gemini-Api-Key": "user-provided-key"},
+                    json={
+                        "query": "Evaluate example site speed and documentation",
+                        "urls": ["https://example.com"],
+                    },
+                )
+            assert res.status_code == 200
+            data = res.json()
+            assert data["summary"] == payload["summary"]
+            assert orch_module._shared_gemini_analyzer is None
+
+            # 3. Subsequent request without header stays in mock mode
+            assert isinstance(get_orchestrator().analyzer, MockAnalyzer)
+    finally:
+        settings.ANALYZER = orig_analyzer
+        settings.FETCHER = orig_fetcher
+        settings.GEMINI_API_KEY = orig_key
+        settings.USE_MOCK = orig_mock
+        orch_module._shared_gemini_analyzer = orig_shared

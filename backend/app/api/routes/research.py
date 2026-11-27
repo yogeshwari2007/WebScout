@@ -3,7 +3,8 @@ Research Execution API Route.
 """
 
 import logging
-from fastapi import APIRouter, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Header, HTTPException, status
 from app.models.request import ResearchRequest
 from app.models.response import ResearchResponse
 from app.services.orchestrator import get_orchestrator
@@ -20,7 +21,10 @@ router = APIRouter()
     tags=["Research"],
     summary="Execute multi-website research request",
 )
-async def post_research(request: ResearchRequest):
+async def post_research(
+    request: ResearchRequest,
+    x_gemini_api_key: Optional[str] = Header(default=None, alias="X-Gemini-Api-Key"),
+):
     """
     Accepts a research query and 1-5 candidate URLs, validates destinations,
     concurrently fetches page contents with anti-SSRF protections and timeouts,
@@ -38,7 +42,7 @@ async def post_research(request: ResearchRequest):
         seen_canonicals.add(canonical)
 
     try:
-        orchestrator = get_orchestrator()
+        orchestrator = get_orchestrator(gemini_api_key=x_gemini_api_key)
         result = await orchestrator.execute_research(
             query=request.query, urls=request.urls
         )
