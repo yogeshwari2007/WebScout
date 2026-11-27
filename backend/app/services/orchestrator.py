@@ -179,9 +179,10 @@ def get_mock_analyzer() -> MockAnalyzer:
 
 def get_gemini_analyzer() -> BaseAnalyzer:
     global _shared_gemini_analyzer
-    if settings.GEMINI_API_KEY:
-        if _shared_gemini_analyzer is None:
-            _shared_gemini_analyzer = GeminiAnalyzer(api_key=settings.GEMINI_API_KEY)
+    api_key = settings.cleaned_gemini_api_key
+    if api_key:
+        if _shared_gemini_analyzer is None or _shared_gemini_analyzer.api_key != api_key:
+            _shared_gemini_analyzer = GeminiAnalyzer(api_key=api_key)
         return _shared_gemini_analyzer
     return get_mock_analyzer()
 
@@ -195,7 +196,7 @@ def get_orchestrator() -> ResearchOrchestrator:
     else:
         fetcher = get_playwright_fetcher()
 
-    if settings.ANALYZER.lower() == "gemini" and settings.GEMINI_API_KEY:
+    if settings.active_analyzer == "gemini":
         analyzer = get_gemini_analyzer()
     else:
         analyzer = get_mock_analyzer()

@@ -714,7 +714,7 @@ function ResearchResultsContent() {
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-foreground/85 leading-relaxed">
-                This research session was evaluated using the Hackathon Demo Engine. Websites were fetched and cleaned via Playwright, and comparative findings are structured for presentation reliability. Configure <code className="text-primary font-mono text-[11px]">GEMINI_API_KEY</code> and <code className="text-primary font-mono text-[11px]">ANALYZER=gemini</code> in the backend for live Gemini AI reasoning.
+                This research session was evaluated using the Hackathon Demo Engine. Websites were fetched and cleaned via Playwright, and comparative findings are structured for presentation reliability. Set <code className="text-primary font-mono text-[11px]">GEMINI_API_KEY</code> (with <code className="text-primary font-mono text-[11px]">USE_MOCK=false</code>) in your backend or Vercel Environment Variables for live Gemini AI semantic reasoning.
               </p>
             </div>
           </div>

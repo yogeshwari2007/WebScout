@@ -19,5 +19,5 @@ async def get_health():
         service=settings.PROJECT_NAME,
         version=settings.VERSION,
         fetcher=settings.active_fetcher,
-        analyzer=settings.ANALYZER,
+        analyzer=settings.active_analyzer,
     )

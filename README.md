@@ -170,7 +170,7 @@ DEBUG=true
 
 # Engine Options
 FETCHER=playwright     # 'playwright' or 'mock'
-ANALYZER=mock          # 'mock' or 'gemini'
+ANALYZER=auto          # 'auto' (uses Gemini when GEMINI_API_KEY is set), 'gemini', or 'mock'
 USE_MOCK=false         # Set to true for 100% offline demo mode
 MAX_URLS=5
 

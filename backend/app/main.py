@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     logger.info(
         "Active Fetcher: %s | Active Analyzer: %s",
         settings.active_fetcher,
-        settings.ANALYZER,
+        settings.active_analyzer,
     )
 
     # Pre-warm Playwright Chromium if running in playwright mode
@@ -132,7 +132,7 @@ def read_root():
         "version": settings.VERSION,
         "status": "online",
         "fetcher": settings.active_fetcher,
-        "analyzer": settings.ANALYZER,
+        "analyzer": settings.active_analyzer,
         "docs": "/docs",
     }
 
